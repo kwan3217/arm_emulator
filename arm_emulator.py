@@ -1,3 +1,4 @@
+from dataclasses import dataclass, field
 from typing import Iterable
 
 from bits import *
@@ -143,14 +144,7 @@ class AddressSpace(Memory):
         segment[segaddr,n]=value
 
 
-class datapath:
-    # register banks -- self._r[i_mode][rn] stores the register for
-    # mode i_mode (which isn't the same as the mode numbers in table A2-1)
-    # The processor has an idea of modes. Each mode might have a different privilege,
-    # and different modes have some registers in common with other modes, while
-    # some registers are *shadowed* and only visible in the given mode.
-    #   A2-1 mode number    mode name
-    # --------------------|-------------
+class xPSR:
     usr=0b10000 # (0x10, 16) User
     fiq=0b10001 # (0x11, 17) Fast Interrupt request
     irq=0b10010 # (0x12, 18) Normal Interrupt request
@@ -162,33 +156,14 @@ class datapath:
     mode_map  ={mode:i_mode for i_mode,mode in i_mode_map.items()}
     mode_name_map={usr:'usr',fiq:'fiq',irq:'irq',svc:'svc',abt:'abt',und:'und',sys:'sys'}
     display_order=(usr,sys,svc,abt,und,irq,fiq)
-    def __init__(self):
-        self._gpr=[[0xc010_2ad0]*16 for i in range(7)] #general purpose register banks, constructed this way because [[0]*16]*7
-                                             #makes a list of 7 references to the same list of 16 registers. Initialize them all
-                                             #with a recognizable unlikely pattern so that we know when they are touched.
-        # Shadowing is rather complicated:
-        #   * usr and sys use all the same GPRs. Sys has its own spsr, while usr has no spsr.
-        #   * irq, svc, abt, und each have their own shadowed r13 (stack pointer) and r14 (link register), and
-        #       their own spsr
-        #   * fiq has its own shadowed r8-r14 and its own spsr
-        # This register shadowing is used without exception. Shadowed registers are never visible from other modes.
-        # In order to access a shadowed register, the mode must be switched. All instructions always use the
-        # appropriate shadowed registers. Instructions which switch modes have access to registers as described
-        # in the instruction pseudocode.
-        #
-        # Therefore, we can set up an appropriate getter and setter for the registers, and have the instruction
-        # functions use the getters and setters. We set up enough state space so that all of the registers can
-        # be shadowed, and then leave it up to the getter and setter
-        self.cpsr=self.svc #reset goes into supervisor (svc) mode
-        self[15]=0x0000_0000 #address of reset exception vector
-        self._spsr=[0xc010_2ad0]*7
-        self.i_mode={}
+    def __init__(self,val=0xc010_2ad0):
+        self.val=val
     @property
     def M(self):
-        return get_bits(self.cpsr, 4, 0)
+        return get_bits(self.val, 4, 0)
     @M.setter
     def M(self,val:int):
-        self.cpsr= set_bits(self.cpsr, val, 4, 0)
+        self.val= set_bits(self.val, val, 4, 0)
     @property
     def N(self):
         """
@@ -196,20 +171,20 @@ class datapath:
                          as a two's complement signed integer, then N=1 if the result is
                          negative and N=0 if it is positive or zero
         """
-        return get_bits(self.cpsr, 31, 31)
+        return get_bits(self.val, 31, 31)
     @N.setter
     def N(self,val:int):
-        self.cpsr= set_bits(self.cpsr, val, 31, 31)
+        self.val= set_bits(self.val, val, 31, 31)
     @property
     def Z(self):
         """
         Zero flag -- is set to 1 if the result of the instruction is zero (this often
                      indicates an *equal* result from a comparison), and to 0 otherwise.
         """
-        return get_bits(self.cpsr, 30, 30)
+        return get_bits(self.val, 30, 30)
     @Z.setter
     def Z(self,val:int):
-        self.cpsr= set_bits(self.cpsr, val, 30, 30)
+        self.val= set_bits(self.val, val, 30, 30)
     @property
     def C(self):
         """
@@ -227,10 +202,10 @@ class datapath:
                             unchanged (but see the individual instruction descriptions
                             for any special cases).
         """
-        return get_bits(self.cpsr, 29, 29)
+        return get_bits(self.val, 29, 29)
     @C.setter
     def C(self,val:int):
-        self.cpsr= set_bits(self.cpsr, val, 29, 29)
+        self.val= set_bits(self.val, val, 29, 29)
     @property
     def V(self):
         """
@@ -242,35 +217,42 @@ class datapath:
                                unchanged (but see the individual instruction descriptions
                                for any special cases).
         """
-        return get_bits(self.cpsr, 28, 28)
+        return get_bits(self.val, 28, 28)
     @V.setter
     def V(self,val:int):
-        self.cpsr= set_bits(self.cpsr, val, 28, 28)
+        self.val= set_bits(self.val, val, 28, 28)
     @property
     def I(self):
         """
         Interrupt bit -- Disables IRQ interrupts when it is set.
         """
-        return get_bits(self.cpsr, 7, 7)
+        return get_bits(self.val, 7, 7)
     @I.setter
     def I(self,val:int):
-        self.cpsr= set_bits(self.cpsr, val, 7, 7)
+        self.val= set_bits(self.val, val, 7, 7)
     @property
     def F(self):
         """
         FIQ bit -- Disables FIQ interrupts when it is set
         """
-        return get_bits(self.cpsr, 6, 6)
+        return get_bits(self.val, 6, 6)
     @F.setter
     def F(self,val:int):
-        self.cpsr= set_bits(self.cpsr, val, 6, 6)
-    @property
-    def spsr(self)->int:
-        return self._spsr[self.mode_map[self.M]]
-    @spsr.setter
-    def spsr(self,val:int):
-        self._spsr[self.mode_map[self.M]]=val
-    def _gpr_bank(self,rn):
+        self.val= set_bits(self.val, val, 6, 6)
+    @classmethod
+    def str_psr(cls,psr:int)->str:
+        bits=(31,30,29,28,7,6)
+        names=('N','Z','C','V','I','F')
+        result=''.join([n if get_bits(psr, bit, bit) else n.lower() for n, bit in zip(names, bits)])
+        M= get_bits(psr, 4, 0)
+        if M in cls.mode_name_map:
+            result+=cls.mode_name_map[M]
+        else:
+            result+='!!!'
+        return result
+    def __str__(self):
+        return f'{format_hex(self.val)} ({self.str_psr(self.val)})'
+    def gpr_bank(self,rn):
         """
         Get the correct bank for the given gpr number, considering
         the cpsr mode
@@ -279,22 +261,56 @@ class datapath:
         """
         if self.M in (self.usr,self.sys):
             return self.mode_map[self.usr]
-        elif self.M in (self.svc,self.abt,self.und,self.irq):
+        elif self.cpsr.M in (self.svc,self.abt,self.und,self.irq):
             if 13<=rn<=14:
-                return self.mode_map[self.M]
+                return self.mode_map[self.cpsr.M]
             else:
                 return self.mode_map[self.usr]
-        elif self.M==self.fiq:
+        elif self.cpsr.M==self.fiq:
             if 8<=rn<=14:
                 return self.mode_map[self.fiq]
             else:
                 return self.mode_map[self.usr]
         else:
             raise ValueError("Invalid mode")
+
+
+
+class datapath:
+    # register banks -- self._r[i_mode][rn] stores the register for
+    # mode i_mode (which isn't the same as the mode numbers in table A2-1)
+    # The processor has an idea of modes. Each mode might have a different privilege,
+    # and different modes have some registers in common with other modes, while
+    # some registers are *shadowed* and only visible in the given mode.
+    #   A2-1 mode number    mode name
+    # --------------------|-------------
+    def __init__(self):
+        self._gpr=[[0xc010_2ad0]*16 for i in range(7)] #general purpose register banks, constructed this way because [[0]*16]*7
+                                             #makes a list of 7 references to the same list of 16 registers. Initialize them all
+                                             #with a recognizable unlikely pattern so that we know when they are touched.
+        # Shadowing is rather complicated:
+        #   * usr and sys use all the same GPRs. Sys has its own spsr, while usr has no spsr.
+        #   * irq, svc, abt, und each have their own shadowed r13 (stack pointer) and r14 (link register), and
+        #       their own spsr
+        #   * fiq has its own shadowed r8-r14 and its own spsr
+        # This register shadowing is used without exception. Shadowed registers are never visible from other modes.
+        # In order to access a shadowed register, the mode must be switched. All instructions always use the
+        # appropriate shadowed registers. Instructions which switch modes have access to registers as described
+        # in the instruction pseudocode.
+        #
+        # Therefore, we can set up an appropriate getter and setter for the registers, and have the instruction
+        # functions use the getters and setters. We set up enough state space so that all of the registers can
+        # be shadowed, and then leave it up to the getter and setter
+        self.cpsr=xPSR() #reset goes into supervisor (svc) mode
+        self[15]=0x0000_0000 #address of reset exception vector
+        self._spsr=[xPSR(0xc010_2ad0) for i in range(7)]
+    @property
+    def spsr(self)->xPSR:
+        return self._spsr[xPSR.mode_map[self.cpsr.M]]
     def __getitem__(self,rn:int)->int:
-        return self._gpr[self._gpr_bank(rn)][rn]
+        return self._gpr[self.cpsr.gpr_bank(rn)][rn]
     def __setitem__(self,rn:int,val:int):
-        self._gpr[self._gpr_bank(rn)][rn]=0xFFFF_FFFF & val
+        self._gpr[self.cpsr.gpr_bank(rn)][rn]=0xFFFF_FFFF & val
     def ConditionPassed(self,cond):
         # (f"if {cond_decode} ({cond_pass})" if cond_decode != 'AL' else '')
         if cond==0b000:
@@ -477,47 +493,94 @@ class datapath:
                     shift_imm= get_bits(shifter_operand, 11, 7)
         raise ValueError(f"Shifter operand not decoded, i={i}, shifter_operand=0x{shifter_operand:03x}")
     def in_priv_mode(self):
-        return self.M!=self.usr
+        return self.cpsr.M!=xPSR.usr
     def has_spsr(self):
         return self.M not in (self.usr,self.sys)
-    def str_psr(self,psr:int)->str:
-        bits=(31,30,29,28,7,6)
-        names=('N','Z','C','V','I','F')
-        result=''.join([n if get_bits(psr, bit, bit) else n.lower() for n, bit in zip(names, bits)])
-        M= get_bits(psr, 4, 0)
-        if M in self.mode_name_map:
-            result+=self.mode_name_map[M]
-        else:
-            result+='!!!'
-        return result
     def __str__(self):
-        result=f"cpsr=0x{self.cpsr:08x} {self.str_psr(self.cpsr)}\n"
-        result+=("        "+"   |    ".join([('>' if x==self.M else ' ')+self.mode_name_map[x]+('<' if x==self.M else ' ') for x in self.display_order]))
+        result=f"cpsr={self.cpsr}\n"
+        result+=("        "+"   |    ".join([('>' if x==self.cpsr.M else ' ')+xPSR.mode_name_map[x]+('<' if x==self.cpsr.M else ' ') for x in xPSR.display_order]))
         for ri in range(0,8):
-            result+=f'\n r{ri:02d} '+'0x%08x'%self._gpr[self.mode_map[self.usr]][ri]
+            result+=f'\n r{ri:02d} '+format_hex(self._gpr[xPSR.mode_map[xPSR.usr]][ri])
         for ri in range(8,13):
-            result+=f'\n r{ri:02d} '+'0x%08x'%self._gpr[self.mode_map[self.usr]][ri]+' '*68+'0x%08x'%self._gpr[self.mode_map[self.fiq]][ri]
+            result+=f'\n r{ri:02d} '+format_hex(self._gpr[xPSR.mode_map[xPSR.usr]][ri])+' '*68+format_hex(self._gpr[xPSR.mode_map[xPSR.fiq]][ri])
         for ri in range(13,15):
-            result+=f'\n r{ri:02d} '+'0x%08x                '%self._gpr[self.mode_map[self.usr]][ri]+" | ".join(['0x%08x'%self._gpr[self.mode_map[x]][ri] for x in self.display_order[2:]])
+            result+=f'\n r{ri:02d} '+format_hex(self._gpr[xPSR.mode_map[xPSR.usr]][ri])+'                '+" | ".join([format_hex(self._gpr[xPSR.mode_map[x]][ri]) for x in xPSR.display_order[2:]])
         for ri in range(15,16):
-            result+=f'\n r{ri:02d} '+'0x%08x'%self._gpr[self.mode_map[self.usr]][ri]
-        result+="\nspsr                           "+" | ".join(['0x%08x'%self._spsr[self.mode_map[x]] for x in self.display_order[2:]])
-        result+="\n                                "+" |  ".join([self.str_psr(self._spsr[self.mode_map[x]]) for x in self.display_order[2:]])
+            result+=f'\n r{ri:02d} '+format_hex(self._gpr[xPSR.mode_map[xPSR.usr]][ri])
+        result+="\nspsr                           "+" | ".join([format_hex(self._spsr[xPSR.mode_map[x]].val) for x in xPSR.display_order[2:]])
+        result+="\n                                "+" |  ".join([xPSR.str_psr(self._spsr[xPSR.mode_map[x]].val) for x in xPSR.display_order[2:]])
         return result
+
+
+def format_hex(i:int)->str:
+    return f'0x{(i&0xffff_ffff)>>16:04X}_{i&0xffff:04X}'
+
+
+@dataclass
+class SideEffect:
+    gpr:dict[int,int]=field(default_factory=dict)  # Datapath side effects
+    xpsr:dict[str,int]=field(default_factory=dict) # xPSR side effects
+    mem:dict[int,int]=field(default_factory=dict)  # Memory side effects
+    def apply(self,d:datapath,mem:Memory)->list[str]:
+        """
+        Apply the given side effects to a datapath and memory
+
+        :param d: datapath
+        :param mem: memory
+        :return: list of strings describing old and new values of each affected item
+        """
+        result=[]
+        for n,val in self.gpr.items():
+            result.append(f'r{n}: {format_hex(d[n])}->{format_hex(val)}')
+            d[n]=val
+        for x,val in self.xpsr.items():
+            if x[0].lower=='c':
+                result.append(f'cpsr: {format_hex(d.cpsr)} ({d.str_psr(d.cpsr)})->{format_hex(val)} ({d.str_psr(val)})')
+                d.cpsr=val
+            else:
+                result.append(f'spsr: {format_hex(d.spsr)} ({d.str_psr(d.spsr)})->{format_hex(val)} ({d.str_psr(val)})')
+                d.spsr=val
+        for addr,val in self.mem.items():
+            result.append(f'mem[{format_hex(addr)}]={format_hex(val)}')
+            mem[addr]=val
+        return result
+
+
+
 
 
 CP15_reg1_UBit=1
 
+# All instruction functions have the following form:
+#     def INS(fields:dict[str,tuple[int,int]],d:datapath,mem:Memory)->tuple[str,str,SideEffect]:
+# where:
+#  * INS is the mnemonic for the instruction
+#  * fields is a dictionary of parsed field values, as returned by parse_bitpat()
+#  * d is an ARMv4T-compatible datapath class, meaning it has ARM flags, xPSR, etc.
+#  * mem is a Memory object
+# The return value is a tuple of:
+#  * Disassembly in ARM assembly language
+#  * English/math description of what happened, including what values are read, calculated, and
+#    written.
+#  * SideEffect object. This will be applied to the datapath and memory after this function
+#    runs, before the next function runs.
+# It would be cool if we could have separate functions for disassembly and execution, but we will
+# interleave these, to use the same pseudocode structure for both disassembly and execution.
+# This doesn't seem efficient, but we don't care much anyway, since we are running in Python
+# and not using particularly efficient code. We optimize for readability, non-duplication,
+# regularity, and matching the form of the ARM manual pseudocode.
 
-def LDR(fields:dict[str,tuple[int,int]],d:datapath,mem:Memory):
+
+def LDR(fields:dict[str,tuple[int,int]],d:datapath,mem:Memory)->tuple[str,str,SideEffect]:
+    result=SideEffect()
     cond_pass,cond_decode=d.ConditionPassed(fields['c'])
     if cond_pass:
         addr,addr_decode=d.decode_addr(i=fields['i'],p=fields['p'],u=fields['u'],b=0,w=fields['w'],l=1,Rn=fields['n'],Rd=fields['d'],a=fields['a'])
         data=mem[addr,4]
         if fields['d']==15:
-            d[15]=data & 0xFFFFFFFC
+            result.gpr[15]=data & 0xFFFFFFFC
         else:
-            d[fields['d']]=data
+            result.gpr[fields['d']]=data
     return cond_decode+f"r{fields['d']}={addr_decode} (mem[0x{addr:08x}]=0x{data:08x})"
 
 
@@ -555,7 +618,7 @@ def MSR_imm(fields:dict[str,tuple[int,int]],d:datapath,mem:Memory):
                     mask=byte_mask & (UserMask|PrivMask)
             else:
                 mask=byte_mask & UserMask
-            d.cpsr= (d.cpsr & bit_not(mask)) | (operand & mask)
+            d.cpsr= (d.cpsr.val & bit_not(mask)) | (operand & mask)
         else:
             if d.has_spsr():
                 mask=byte_mask & (UserMask | PrivMask | StateMask)
@@ -850,6 +913,13 @@ class ARM(datapath):
                 field_vals = decode_bitpat(ins,fields)
                 return (opcode,field_vals)
         raise ValueError(f"Couldn't decode instruction {ins:08x}")
+    def disasm(self,mem:Memory):
+        pc=self[15]
+        ins=mem[pc,4]
+        print(f"{pc:08x} - {ins:08x} ",end='')
+        opcode,field_vals=self.decode(ins)
+        self[15]+=4
+        return opcode(field_vals,self,mem)
     def exec(self,mem:Memory):
         pc=self[15]
         ins=mem[pc,4]
