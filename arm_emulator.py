@@ -9,97 +9,6 @@ class UNDEFINED(ValueError):
     pass
 
 
-def get_bits(val:int,b1:int,b0:int):
-    """
-    Reads a bitfield from a number (interpreted as uint32_t)
-    :param val: value to pull bitfield from
-    :param b1: high bit of bitfield
-    :param b0: low bit of bitfield
-    :return: bits of bitfield, shifted such that val[b0] is result[0]
-    """
-    mask=(1<<(b1-b0+1))-1
-    return (val >> b0) & mask
-
-
-def set_bits(val:int,bits:int,b1:int,b0:int):
-    """
-    Writes a bitfield to a number (interpreted as uint32_t)
-    :param val: value to write bitfield to
-    :param bits: bits of bitfield
-    :param b1: high bit of bitfield
-    :param b0: low bit of bitfield
-    :return: val with the bits in the bitfield replaced by bits
-    Note that bits is masked such that it will fit in the bitfield,
-    IE set_bits(0x00,0,0,0xff)==0x01, not 0xff (since 0xff doesn't
-    fit in 1 bit).
-    Note that val is only an input argument, and its value is
-    not affected.
-    """
-    mask=((1<<(b1-b0+1))-1)<<b0
-    bits=(bits<<b0) & mask
-    return ((val &~ mask) | bits) & 0xFFFF_FFFF
-
-
-def bits_match(val:int,need0:int,need1:int):
-    # Check 0 bits
-    if (bit_not(val) & need0)!=need0:
-        return False
-    if (val & need1)!=need1:
-        return False
-    return True
-
-
-def sign_extend(signed:int, old_length:int, new_length:int)->int:
-    """
-    Sign extend a number. Given an old length and new length,
-    extend the number to the new length, adding
-    :param signed:
-    :param old_length:
-    :param new_length:
-    :return:
-    """
-    oldmask=(1<<old_length)-1
-    oldbits=signed & oldmask
-    sign=get_bits(oldbits,old_length-1,old_length-1)
-    newbits=sign*(((1<<(new_length-old_length))-1)<<old_length)
-    return oldbits | newbits
-
-
-def rotate_right(val:int,ror:int):
-    """
-    Perform a rotate-right on a 32-bit unsigned int.
-
-    From Glossary-12:
-    "Perform a right rotate, where each bit that is shifted off the right is inserted on the left"
-    :param val: Value to rotate
-    :param ror: Number of bits to rotate
-    :return: Rotated value
-    """
-    right_part=val>>ror
-    left_part=(val<<(32-ror)) & 0xFFFF_FFFF
-    return left_part | right_part
-
-
-def arithmetic_shift_right(val:int,ror:int):
-    """
-    Perform a rotate-right on a 32-bit unsigned int.
-
-    From Glossary-12:
-    "Perform a right rotate, where each bit that is shifted off the right is inserted on the left"
-    :param val: Value to rotate
-    :param ror: Number of bits to rotate
-    :return: Rotated value
-    """
-    sign=get_bits(val,31,31)
-    right_part=val>>ror
-    left_part=(sign*((1<<ror)-1))<<(32-ror)
-    return left_part | right_part
-
-
-def bit_not(val:int):
-    return (~val) & 0xFFFF_FFFF
-
-
 def borrow_from(a:int,b:int)->int:
     """
     :param a: First operand of subtraction
@@ -228,25 +137,6 @@ class AddressSpace(Memory):
     def __setitem__(self,args,value):
         segment,segaddr,n=self._getaddr(args)
         segment[segaddr,n]=value
-
-
-def parse_bitpat(pat:str):
-    need1 = 0
-    need0 = 0
-    assert len(pat) == 32, f'Wrong number of bits for pattern {pat}, should be 32, is {len(pat)}'
-    field_bit1 = {}
-    field_bit0 = {}
-    for i_bit, code in enumerate(reversed(pat)):
-        if code == '0':
-            need0 |= 1 << i_bit
-        elif code == '1':
-            need1 |= 1 << i_bit
-        else:
-            if code not in field_bit0:
-                field_bit0[code] = i_bit
-            field_bit1[code] = i_bit
-    field={code:(b1,field_bit0[code]) for code,b1 in field_bit1.items()}
-    return need0, need1, field
 
 
 class datapath:
@@ -952,10 +842,8 @@ class ARM(datapath):
             self.decode_dict[(need0, need1)] = (opcode,fields)
     def decode(self,ins:int):
         for (need0,need1),(opcode,fields) in self.decode_dict.items():
-            if bits_match(ins,need0,need1):
-                field_vals={}
-                for code,(bit1,bit0) in fields.items():
-                    field_vals[code]=get_bits(ins,bit1,bit0)
+            if bits_match(ins, need0, need1):
+                field_vals = decode_bitpat(ins,fields)
                 return (opcode,field_vals)
         raise ValueError(f"Couldn't decode instruction {ins:08x}")
     def exec(self,mem:Memory):
