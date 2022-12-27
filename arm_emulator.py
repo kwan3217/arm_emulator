@@ -40,7 +40,8 @@ def overflow_from_add(a:int,b:int)->int:
     This delivers further information about an addition... which occurred
     earlier in the pseudo-code. The addition... is not repeated.
     """
-    return 1 if (get_bits(a,31,31)==get_bits(b,31,31)) and (get_bits((a+b)&0xFFFF_FFFF,31,31)!=get_bits(a,31,31)) else 0
+    return 1 if (get_bits(a, 31, 31) == get_bits(b, 31, 31)) and (
+                get_bits((a + b) & 0xFFFF_FFFF, 31, 31) != get_bits(a, 31, 31)) else 0
 
 
 def overflow_from_sub(a:int,b:int)->int:
@@ -57,7 +58,8 @@ def overflow_from_sub(a:int,b:int)->int:
     delivers further information about a...subtraction which occurred
     earlier in the pseudo-code. The ...subtraction is not repeated.
     """
-    return 1 if (get_bits(a,31,31)!=get_bits(b,31,31)) and (get_bits((a-b)&0xFFFF_FFFF,31,31)!=get_bits(a,31,31)) else 0
+    return 1 if (get_bits(a, 31, 31) != get_bits(b, 31, 31)) and (
+                get_bits((a - b) & 0xFFFF_FFFF, 31, 31) != get_bits(a, 31, 31)) else 0
 
 
 class Memory:
@@ -116,7 +118,7 @@ class RAM(Memory):
         """
         addr,n=self._decode_args(args)
         for i in range(n):
-            self.data[addr+i]=get_bits(value,i*8+7,i*8)
+            self.data[addr+i]= get_bits(value, i * 8 + 7, i * 8)
 
 
 class AddressSpace(Memory):
@@ -183,10 +185,10 @@ class datapath:
         self.i_mode={}
     @property
     def M(self):
-        return get_bits(self.cpsr,4,0)
+        return get_bits(self.cpsr, 4, 0)
     @M.setter
     def M(self,val:int):
-        self.cpsr=set_bits(self.cpsr,val,4,0)
+        self.cpsr= set_bits(self.cpsr, val, 4, 0)
     @property
     def N(self):
         """
@@ -194,20 +196,20 @@ class datapath:
                          as a two's complement signed integer, then N=1 if the result is
                          negative and N=0 if it is positive or zero
         """
-        return get_bits(self.cpsr,31,31)
+        return get_bits(self.cpsr, 31, 31)
     @N.setter
     def N(self,val:int):
-        self.cpsr=set_bits(self.cpsr,val,31,31)
+        self.cpsr= set_bits(self.cpsr, val, 31, 31)
     @property
     def Z(self):
         """
         Zero flag -- is set to 1 if the result of the instruction is zero (this often
                      indicates an *equal* result from a comparison), and to 0 otherwise.
         """
-        return get_bits(self.cpsr,30,30)
+        return get_bits(self.cpsr, 30, 30)
     @Z.setter
     def Z(self,val:int):
-        self.cpsr=set_bits(self.cpsr,val,30,30)
+        self.cpsr= set_bits(self.cpsr, val, 30, 30)
     @property
     def C(self):
         """
@@ -225,10 +227,10 @@ class datapath:
                             unchanged (but see the individual instruction descriptions
                             for any special cases).
         """
-        return get_bits(self.cpsr,29,29)
+        return get_bits(self.cpsr, 29, 29)
     @C.setter
     def C(self,val:int):
-        self.cpsr=set_bits(self.cpsr,val,29,29)
+        self.cpsr= set_bits(self.cpsr, val, 29, 29)
     @property
     def V(self):
         """
@@ -240,28 +242,28 @@ class datapath:
                                unchanged (but see the individual instruction descriptions
                                for any special cases).
         """
-        return get_bits(self.cpsr,28,28)
+        return get_bits(self.cpsr, 28, 28)
     @V.setter
     def V(self,val:int):
-        self.cpsr=set_bits(self.cpsr,val,28,28)
+        self.cpsr= set_bits(self.cpsr, val, 28, 28)
     @property
     def I(self):
         """
         Interrupt bit -- Disables IRQ interrupts when it is set.
         """
-        return get_bits(self.cpsr,7,7)
+        return get_bits(self.cpsr, 7, 7)
     @I.setter
     def I(self,val:int):
-        self.cpsr=set_bits(self.cpsr,val,7,7)
+        self.cpsr= set_bits(self.cpsr, val, 7, 7)
     @property
     def F(self):
         """
         FIQ bit -- Disables FIQ interrupts when it is set
         """
-        return get_bits(self.cpsr,6,6)
+        return get_bits(self.cpsr, 6, 6)
     @F.setter
     def F(self,val:int):
-        self.cpsr=set_bits(self.cpsr,val,6,6)
+        self.cpsr= set_bits(self.cpsr, val, 6, 6)
     @property
     def spsr(self)->int:
         return self._spsr[self.mode_map[self.M]]
@@ -343,7 +345,7 @@ class datapath:
         :side effect: if requested by the address mode, writes address back to appropriate register
         """
         # PUSWL Rn RegList
-        parsed_reglist=[i_reg for i_reg in range(16) if get_bits(reglist,i_reg,i_reg)]
+        parsed_reglist=[i_reg for i_reg in range(16) if get_bits(reglist, i_reg, i_reg)]
         if p==0 and u==1:
             # A5.4.2 -- Load and store multiple - increment after
             start_address=self[Rn]
@@ -406,73 +408,73 @@ class datapath:
         """
         if i==1:
             # A5.1.3 Data-processing operands -- Immediate
-            immed_8=get_bits(shifter_operand,7,0)
-            rotate_imm=get_bits(shifter_operand,11,8)
-            shifter_out=rotate_right(immed_8,rotate_imm*2)
+            immed_8= get_bits(shifter_operand, 7, 0)
+            rotate_imm= get_bits(shifter_operand, 11, 8)
+            shifter_out= rotate_right(immed_8, rotate_imm * 2)
             if rotate_imm==0:
                 shifter_carry_out=self.C
             else:
-                shifter_carry_out=get_bits(shifter_out,31,31)
+                shifter_carry_out= get_bits(shifter_out, 31, 31)
             return shifter_out,shifter_carry_out,f'{shifter_out}'
         else:
-            if get_bits(shifter_operand,4,4)==0:
+            if get_bits(shifter_operand, 4, 4)==0:
                 # Immediate shifts
-                if get_bits(shifter_operand,6,5)==0b00:
+                if get_bits(shifter_operand, 6, 5)==0b00:
                     #A5.1.5 Data-processing operands -- Logical shift left by immediate
                     #(A5.1.4 is encoded by shift by zero)
-                    m=get_bits(shifter_operand,3,0)
+                    m= get_bits(shifter_operand, 3, 0)
                     Rm=self[m]
                     Rm=Rm+(4 if m==15 else 0)
-                    shift_imm=get_bits(shifter_operand,11,7)
+                    shift_imm= get_bits(shifter_operand, 11, 7)
                     if shift_imm==0:
                         #A5.1.4 Data-processing operands -- Register
                         return Rm,self.C,f'r{m}'
                     else:
                         shifter_out=Rm<<shift_imm
-                        shifter_carry_out=get_bits(Rm,32-shift_imm,32-shift_imm)
+                        shifter_carry_out= get_bits(Rm, 32 - shift_imm, 32 - shift_imm)
                         return shifter_out,shifter_carry_out,f'r{m} << {shift_imm}'
-                elif get_bits(shifter_operand,6,5)==0b01:
+                elif get_bits(shifter_operand, 6, 5)==0b01:
                     #A5.1.7 Data-processing operands -- Logical shift right by immediate
-                    m=get_bits(shifter_operand,3,0)
+                    m= get_bits(shifter_operand, 3, 0)
                     Rm=self[m]
                     Rm=Rm+(4 if m==15 else 0)
-                    shift_imm=get_bits(shifter_operand,11,7)
+                    shift_imm= get_bits(shifter_operand, 11, 7)
                     if shift_imm==0:
                         #A5.1.4 Data-processing operands -- Register
                         shifter_operand=0
-                        shifter_carry_out=get_bits(Rm,31,31)
+                        shifter_carry_out= get_bits(Rm, 31, 31)
                         return shifter_operand,shifter_carry_out,f'r{m} >> #32'
                     else:
                         shifter_out=(Rm & 0xffff_ffff)>>shift_imm
-                        shifter_carry_out=get_bits(Rm,32-shift_imm,32-shift_imm)
+                        shifter_carry_out= get_bits(Rm, 32 - shift_imm, 32 - shift_imm)
                         return shifter_out,shifter_carry_out,f'r{m} >> {shift_imm}'
-                elif get_bits(shifter_operand,6,5)==0b10:
+                elif get_bits(shifter_operand, 6, 5)==0b10:
                     #A5.1.9 Data-processing operands -- Arithmetic shift right by immediate
-                    m=get_bits(shifter_operand,3,0)
+                    m= get_bits(shifter_operand, 3, 0)
                     Rm=self[m]
                     Rm=Rm+(4 if m==15 else 0)
-                    shift_imm=get_bits(shifter_operand,11,7)
+                    shift_imm= get_bits(shifter_operand, 11, 7)
                     if shift_imm==0:
-                        shifter_carry_out=get_bits(Rm,31,31)
+                        shifter_carry_out= get_bits(Rm, 31, 31)
                         if shifter_carry_out==0:
                             shifter_operand=0
                         else:
                             shifer_operand=0xffff_ffff
                         return shifter_operand,shifter_carry_out,f'r{m} >>> 32'
                     else:
-                        shifter_out=arithmetic_shift_right(Rm & 0xffff_ffff,shift_imm)
-                        shifter_carry_out=get_bits(Rm,32-shift_imm,32-shift_imm)
+                        shifter_out= arithmetic_shift_right(Rm & 0xffff_ffff, shift_imm)
+                        shifter_carry_out= get_bits(Rm, 32 - shift_imm, 32 - shift_imm)
                         return shifter_out,shifter_carry_out,f'r{m} >>> {shift_imm}'
-            elif get_bits(shifter_operand,7,7)==0:
+            elif get_bits(shifter_operand, 7, 7)==0:
                 # Register shifts
-                if get_bits(shifter_operand,6,5)==0b00:
+                if get_bits(shifter_operand, 6, 5)==0b00:
                     #A5.1.6 - Data-processing operands -- logical shift left by register
                     raise NotImplementedError("A5.1.6")
-                elif get_bits(shifter_operand,6,5)==0b01:
+                elif get_bits(shifter_operand, 6, 5)==0b01:
                     #A5.1.7 - Data-processing operands -- logical shift right by immediate
                     raise NotImplementedError("A5.1.7")
-                    Rm=get_bits(shifter_operand,3,0)
-                    shift_imm=get_bits(shifter_operand,11,7)
+                    Rm= get_bits(shifter_operand, 3, 0)
+                    shift_imm= get_bits(shifter_operand, 11, 7)
         raise ValueError(f"Shifter operand not decoded, i={i}, shifter_operand=0x{shifter_operand:03x}")
     def in_priv_mode(self):
         return self.M!=self.usr
@@ -481,8 +483,8 @@ class datapath:
     def str_psr(self,psr:int)->str:
         bits=(31,30,29,28,7,6)
         names=('N','Z','C','V','I','F')
-        result=''.join([n if get_bits(psr,bit,bit) else n.lower() for n,bit in zip(names,bits)])
-        M=get_bits(psr,4,0)
+        result=''.join([n if get_bits(psr, bit, bit) else n.lower() for n, bit in zip(names, bits)])
+        M= get_bits(psr, 4, 0)
         if M in self.mode_name_map:
             result+=self.mode_name_map[M]
         else:
@@ -531,7 +533,7 @@ def MSR_imm(fields:dict[str,tuple[int,int]],d:datapath,mem:Memory):
     UserMask=0xF000_0000
     PrivMask=0x0000_00DF # Note -- documentation is wrong, doesn't include I and F bits or highest M bit
     StateMask=0x0000_0020
-    operand=rotate_right(fields['j'],fields['k']*2)
+    operand= rotate_right(fields['j'], fields['k'] * 2)
     field_mask=[fields['f'] & (1<<x) for x in range(4)]
     byte_mask=((0x0000_00FF if field_mask[0] else 0x0000_0000) |
                (0x0000_FF00 if field_mask[1] else 0x0000_0000) |
@@ -553,11 +555,11 @@ def MSR_imm(fields:dict[str,tuple[int,int]],d:datapath,mem:Memory):
                     mask=byte_mask & (UserMask|PrivMask)
             else:
                 mask=byte_mask & UserMask
-            d.cpsr=(d.cpsr & bit_not(mask)) | (operand & mask)
+            d.cpsr= (d.cpsr & bit_not(mask)) | (operand & mask)
         else:
             if d.has_spsr():
                 mask=byte_mask & (UserMask | PrivMask | StateMask)
-                d.spsr=(d.spsr & bit_not(mask)) | (operand & mask)
+                d.spsr= (d.spsr & bit_not(mask)) | (operand & mask)
             else:
                 raise UNPREDICTABLE("No SPSR in current mode")
 
@@ -579,7 +581,7 @@ def MOV(fields:dict[str,tuple[int,int]],d:datapath,mem:Memory):
         if fields['s']==1 and fields['d']==15:
             d.CPSR=d.SPSR
         elif fields['s']==1:
-            d.N=get_bits(d[fields['d']],31,31)
+            d.N= get_bits(d[fields['d']], 31, 31)
             d.Z=1 if d[fields['d']]==0 else 0
             d.C=c
             # d.V is unaffected
@@ -603,7 +605,7 @@ def SUB(fields:dict[str,tuple[int,int]],d:datapath,mem:Memory):
         if fields['s']==1 and fields['d']==15:
             d.CPSR=d.SPSR
         elif fields['s']==1:
-            d.N=get_bits(d[fields['d']],31,31)
+            d.N= get_bits(d[fields['d']], 31, 31)
             d.Z=1 if d[fields['d']]==0 else 0
             d.C=~borrow_from(subA,subB)
             d.V=overflow_from_sub(subA,subB)
@@ -645,7 +647,7 @@ def CMP(fields:dict[str,tuple[int,int]],d:datapath,mem:Memory):
         subA=d[fields['n']]
         subB=shifter_operand
         alu_out=subA-subB
-        d.N=get_bits(alu_out,31,31)
+        d.N= get_bits(alu_out, 31, 31)
         d.Z=1 if alu_out==0 else 0
         d.C=~borrow_from(subA,subB)
         d.V=overflow_from_sub(subA,subB)
@@ -685,7 +687,7 @@ def ADD(fields:dict[str,tuple[int,int]],d:datapath,mem:Memory):
         if fields['s']==1 and fields['d']==15:
             d.CPSR=d.SPSR
         elif fields['s']==1:
-            d.N=get_bits(d[fields['d']],31,31)
+            d.N= get_bits(d[fields['d']], 31, 31)
             d.Z=1 if d[fields['d']]==0 else 0
             d.C=~borrow_from(subA,subB)
             d.V=overflow_from_add(subA,subB)
@@ -709,7 +711,7 @@ def BIC(fields:dict[str,tuple[int,int]],d:datapath,mem:Memory):
         if fields['s']==1 and fields['d']==15:
             d.CPSR=d.SPSR
         elif fields['s']==1:
-            d.N=get_bits(d[fields['d']],31,31)
+            d.N= get_bits(d[fields['d']], 31, 31)
             d.Z=1 if d[fields['d']]==0 else 0
             d.C=shifter_carry_out
             #d.V=unaffected
@@ -742,7 +744,7 @@ def TST(fields:dict[str,tuple[int,int]],d:datapath,mem:Memory):
     if cond_pass:
         shifter_operand,shifter_carry_out,decode_disasm=d.decode_shifter_operand(fields['i'],fields['j'])
         alu_out=d[fields['n']] & shifter_operand
-        d.N=get_bits(alu_out,31,31)
+        d.N= get_bits(alu_out, 31, 31)
         d.Z=1 if alu_out==0 else 0
         d.C=shifter_carry_out
         #d.V=unaffected
@@ -784,7 +786,7 @@ def AND(fields:dict[str,tuple[int,int]],d:datapath,mem:Memory):
         if fields['s']==1 and fields['d']==15:
             d.CPSR=d.SPSR
         elif fields['s']==1:
-            d.N=get_bits(d[fields['d']],31,31)
+            d.N= get_bits(d[fields['d']], 31, 31)
             d.Z=1 if d[fields['d']]==0 else 0
             d.C=shifter_carry_out
            #d.V=unaffected
@@ -840,7 +842,7 @@ class ARM(datapath):
         super().__init__()
         self.decode_dict = {}
         for pat, opcode in self.decode_encoded.items():
-            need0,need1,fields=parse_bitpat(pat)
+            need0,need1,fields= parse_bitpat(pat)
             self.decode_dict[(need0, need1)] = (opcode,fields)
     def decode(self,ins:int):
         for (need0,need1),(opcode,fields) in self.decode_dict.items():
