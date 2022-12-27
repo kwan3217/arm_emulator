@@ -1,5 +1,7 @@
 from typing import Iterable
 
+from bits import *
+
 
 class UNPREDICTABLE(ValueError):
     pass
