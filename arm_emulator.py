@@ -1,3 +1,4 @@
+from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Iterable
 
@@ -273,7 +274,88 @@ class xPSR:
                 return self.mode_map[self.usr]
         else:
             raise ValueError("Invalid mode")
+    def ConditionPassed(self,cond):
+        # (f"if {cond_decode} ({cond_pass})" if cond_decode != 'AL' else '')
+        if cond==0b000:
+            cond_pass=1==self.Z
+            return cond_pass,'eq',f"if equal [Z==1] ({cond_pass}) "
+        elif cond==0b0001:
+            cond_pass=0==self.Z
+            return cond_pass,'ne',f"if not equal [Z==0] ({cond_pass}) "
+        elif cond == 0b0010:
+            cond_pass=1==self.C
+            return cond_pass,'hs',f"if unsigned higher or same [C==1] ({cond_pass}) "
+        elif cond == 0b0011:
+            cond_pass=0==self.C
+            return cond_pass,'lo',f"if unsigned lower [C==0] ({cond_pass}) "
+        elif cond == 0b0100:
+            cond_pass=1==self.N
+            return cond_pass,'mi',f"if negative [N==1] ({cond_pass}) "
+        elif cond == 0b0101:
+            cond_pass=0==self.N
+            return cond_pass,'pl',f"if positive or zero [N==0] ({cond_pass}) "
+        elif cond == 0b0110:
+            cond_pass=1==self.V
+            return cond_pass,'vs',f"if overflow [V==1] ({cond_pass}) "
+        elif cond == 0b0111:
+            cond_pass=0==self.V
+            return cond_pass,'vc',f"if not overflow [V==0] ({cond_pass}) "
+        elif cond == 0b1000:
+            cond_pass=(1==self.C) and (0==self.Z)
+            return cond_pass,'hi',f"if unsigned higher [C==1 and Z==0] ({cond_pass}) "
+        elif cond == 0b1001:
+            cond_pass=(0==self.C) or (1==self.Z)
+            return cond_pass,'ls',f"if unsigned lower or same [C==0 or Z==1] ({cond_pass}) "
+        elif cond == 0b1010:
+            cond_pass = (self.N==self.V)
+            return cond_pass, 'ge', f"if signed greater or equal [N==V] ({cond_pass}) "
+        elif cond == 0b1011:
+            cond_pass = (self.N != self.V)
+            return cond_pass, 'lt', f"if signed less than [N!=V] ({cond_pass}) "
+        elif cond == 0b1100:
+            cond_pass = self.Z==0 and (self.N != self.V)
+            return cond_pass, 'gt', f"if signed greater than [Z==0 and N!=V] ({cond_pass}) "
+        elif cond == 0b1101:
+            cond_pass = self.Z==1 or (self.N != self.V)
+            return cond_pass, 'le', f"if signed less than or equal [Z==1 or N!=V] ({cond_pass}) "
+        elif cond==0b1110:
+            cond_pass=True
+            return cond_pass,'',""
+        raise ValueError(f"Condition code {cond:04b} not decoded")
 
+
+def format_hex(i:int)->str:
+    return f'0x{(i&0xffff_ffff)>>16:04X}_{i&0xffff:04X}'
+
+
+@dataclass
+class SideEffect:
+    gpr:dict[int,int]=field(default_factory=dict)  # Datapath side effects
+    xpsr:dict[str,int]=field(default_factory=dict) # xPSR side effects
+    mem:dict[int,int]=field(default_factory=dict)  # Memory side effects
+    def writeback(self, d:datapath, mem:Memory)->list[str]:
+        """
+        Apply the given side effects to a datapath and memory
+
+        :param d: datapath
+        :param mem: memory
+        :return: list of strings describing old and new values of each affected item
+        """
+        result=[]
+        for n,val in self.gpr.items():
+            result.append(f'r{n}: {format_hex(d[n])}->{format_hex(val)}')
+            d[n]=val
+        for x,psr in self.xpsr.items():
+            if x[0].lower=='c':
+                result.append(f'cpsr: {d.cpsr}->{psr}')
+                d.cpsr.val=psr.val
+            else:
+                result.append(f'spsr: {d.spsr}->{psr}')
+                d.spsr.val=psr.val
+        for addr,val in self.mem.items():
+            result.append(f'mem[{format_hex(addr)}]={format_hex(val)}')
+            mem[addr]=val
+        return result
 
 
 class datapath:
@@ -311,43 +393,22 @@ class datapath:
         return self._gpr[self.cpsr.gpr_bank(rn)][rn]
     def __setitem__(self,rn:int,val:int):
         self._gpr[self.cpsr.gpr_bank(rn)][rn]=0xFFFF_FFFF & val
-    def ConditionPassed(self,cond):
-        # (f"if {cond_decode} ({cond_pass})" if cond_decode != 'AL' else '')
-        if cond==0b000:
-            cond_pass=1==self.Z
-            return cond_pass,f"if equal [Z==1] ({cond_pass}) "
-        elif cond==0b0001:
-            cond_pass=0==self.Z
-            return cond_pass,f"if not equal [Z==0] ({cond_pass}) "
-        elif cond == 0b0010:
-            cond_pass=1==self.C
-            return cond_pass,f"if unsigned higher or same [C==1] ({cond_pass}) "
-        elif cond == 0b0011:
-            cond_pass=0==self.C
-            return cond_pass,f"if unsigned lower [C==0] ({cond_pass}) "
-        elif cond == 0b0100:
-            cond_pass=1==self.N
-            return cond_pass,f"if negative [N==1] ({cond_pass}) "
-        elif cond == 0b0101:
-            cond_pass=0==self.N
-            return cond_pass,f"if positive or zero [N==0] ({cond_pass}) "
-        elif cond == 0b0110:
-            cond_pass=1==self.V
-            return cond_pass,f"if overflow [V==1] ({cond_pass}) "
-        elif cond == 0b0111:
-            cond_pass=0==self.V
-            return cond_pass,f"if not overflow [V==0] ({cond_pass}) "
-        elif cond == 0b1000:
-            cond_pass=(1==self.C) and (0==self.Z)
-            return cond_pass,f"if unsigned higher [C==1 and Z==0] ({cond_pass}) "
-        elif cond == 0b1001:
-            cond_pass=(0==self.C) or (1==self.Z)
-            return cond_pass,f"if unsigned lower or same [C==0 or Z==1] ({cond_pass}) "
-        elif cond==0b1110:
-            cond_pass=True
-            return cond_pass,""
-        raise ValueError(f"Condition code {cond:04b} not decoded")
-    def decode_addr_4(self,p:int,u:int,s:int,w:int,l:int,Rn:int,reglist:int):
+    def r_prefetch(self,rn:int)->int:
+        """
+        Get the value of the given numbered register at the time that the instruction is executed.
+        For all registers except r15 (PC), it's just the normal value. For PC, by the time the
+        instruction has executed, the processor has already prefetched the next two instructions
+        so PC points 8 past the current instruction address. The emulator doesn't do prefetch,
+        so we simulate this artificially.
+
+        :param rn: Number of register to get
+        :return: Value of register considering prefetch, as stated above.
+        """
+        if rn==15:
+            return self[15]+8
+        else:
+            return self[rn]
+    def addr_mode_4(self, p:int, u:int, s:int, w:int, l:int, Rn:int, reglist:int):
         """
         Address mode 4 -- load and store multiple
         :param p:
@@ -390,37 +451,50 @@ class datapath:
             if w==1:
                 self[Rn]=self[Rn]-(len(parsed_reglist)*4)
             return (start_address,end_address,parsed_reglist,f"mem[ 0x{start_address:08x}--0x{end_address:08x} r{Rn}]",f", write 0x{self[Rn]:08x} back to r{Rn} before" if w==1 else '')
-        raise NotImplementedError("decode_addr_4")
-    def decode_addr(self,i:int,p:int,u:int,b:int,w:int,l:int,Rn:int,Rd:int,a:int):
+        raise NotImplementedError("addr_mode_4")
+    def addr_mode_2(self, i:int, p:int, u:int, b:int, w:int, l:int, Rn:int, Rd:int, a:int, se:SideEffect)->tuple[int, str, str]:
+        """
+        A5.2 Addressing Mode 2 - Load and Store Word or Unsigned Byte
+
+        There are nine formats used to calculate the address for a Load
+        and Store Word or Unsigned Byte instruction. The general instruction
+        syntax is: LDR|STR{<cond>}{B}{T} <Rd>, <addressing_mode>
+
+        :param i: Immediate bit
+        :param p: post-indexed addressing bit
+        :param u: offset direction bit
+        :param b: byte-sized access bit
+        :param w: writeback bit
+        :param l: load bit
+        :param Rn: number of register containing base address
+        :param Rd:
+        :param a:
+        :return:
+        """
         if i==0 and p==1 and w==0:
             # A5.2.2 Load and store word or unsigned byte -- immediate offset
-            reg=self[Rn]
-            if Rn==15:
-                # Special case for PC to take into account two instructions of prefetch.
-                # PC has already advanced, so take into account second prefetch.
-                reg=0xffff_ffff & (reg+4)
             if u==1:
-                return 0xFFFF_FFFF & (reg+a),f"mem[r{Rn}+{a}]"
+                return 0xFFFF_FFFF & (self.r_prefetch(Rn)+a),f"[r{Rn},+{a}]",f"mem[r{Rn}+{a}]"
             else:
-                return 0xFFFF_FFFF & (reg-a),f"mem[r{Rn}-{a}]"
+                return 0xFFFF_FFFF & (self.r_prefetch(Rn)-a),f"[r{Rn},-{a}]",f"mem[r{Rn}-{a}]"
         elif i==0 and p==0 and w==0:
             # A5.2.8 Load and store word or unsigned byte -- immediate post-indexed
-            reg=self[Rn]
+            addr=self[Rn]
             if Rn==15:
                 raise UNPREDICTABLE("Cannot use r15 in this context")
             if u==1:
-                self[Rn]+=a
-                return 0xFFFF_FFFF & (reg),f"mem[r{Rn}], r{Rn}+={a} (={self[Rn]-a:08x})"
+                se.gpr[Rn]=self[Rn]+a
+                return 0xFFFF_FFFF & (addr),f'[r{Rn}],#+{a}',f"mem[r{Rn}], r{Rn}+={a} (={self[Rn]-a:08x})"
             else:
-                self[Rn]-=a
-                return 0xFFFF_FFFF & (reg),f"mem[r{Rn}], r{Rn}-={a} (={self[Rn]+a:08x})"
+                se.gpr[Rn]=self[Rn]-a
+                return 0xFFFF_FFFF & (addr),f'[r{Rn}],#-{a}',f"mem[r{Rn}], r{Rn}-={a} (={self[Rn]+a:08x})"
         raise ValueError(f"Address not decoded - i={i}, p={p}, u={u}, b={b}, w={w}, l={l}, Rn={Rn}, a={a:03x}")
-    def decode_shifter_operand(self,i:int,shifter_operand:int)->tuple[int,int]:
+    def shifter_operand(self, i:int, shifter_operand:int)->tuple[int, int]:
         """
         Decode the shifter operand
         :param i: Immediate flag, bit 25 of instruction
         :param shifter_operand: Shifter operand, lower 12 bits of instruction
-        :return: Tuple of shifter result, shifter carry out, disasm
+        :return: Tuple of shifter result, shifter carry out, disasm, desc
         """
         if i==1:
             # A5.1.3 Data-processing operands -- Immediate
@@ -428,10 +502,10 @@ class datapath:
             rotate_imm= get_bits(shifter_operand, 11, 8)
             shifter_out= rotate_right(immed_8, rotate_imm * 2)
             if rotate_imm==0:
-                shifter_carry_out=self.C
+                shifter_carry_out=self.cpsr.C
             else:
                 shifter_carry_out= get_bits(shifter_out, 31, 31)
-            return shifter_out,shifter_carry_out,f'{shifter_out}'
+            return shifter_out,shifter_carry_out,f'#{shifter_out}',f'{shifter_out}'
         else:
             if get_bits(shifter_operand, 4, 4)==0:
                 # Immediate shifts
@@ -439,36 +513,33 @@ class datapath:
                     #A5.1.5 Data-processing operands -- Logical shift left by immediate
                     #(A5.1.4 is encoded by shift by zero)
                     m= get_bits(shifter_operand, 3, 0)
-                    Rm=self[m]
-                    Rm=Rm+(4 if m==15 else 0)
+                    Rm=self.r_prefetch(m)
                     shift_imm= get_bits(shifter_operand, 11, 7)
                     if shift_imm==0:
                         #A5.1.4 Data-processing operands -- Register
-                        return Rm,self.C,f'r{m}'
+                        return Rm,self.cpsr.C,f'r{m}',f'r{m}'
                     else:
                         shifter_out=Rm<<shift_imm
                         shifter_carry_out= get_bits(Rm, 32 - shift_imm, 32 - shift_imm)
-                        return shifter_out,shifter_carry_out,f'r{m} << {shift_imm}'
+                        return shifter_out,shifter_carry_out,f'r{m}, lsl #{shift_imm}',f'r{m} << {shift_imm}'
                 elif get_bits(shifter_operand, 6, 5)==0b01:
                     #A5.1.7 Data-processing operands -- Logical shift right by immediate
                     m= get_bits(shifter_operand, 3, 0)
-                    Rm=self[m]
-                    Rm=Rm+(4 if m==15 else 0)
+                    Rm=self.r_prefetch(m)
                     shift_imm= get_bits(shifter_operand, 11, 7)
                     if shift_imm==0:
                         #A5.1.4 Data-processing operands -- Register
                         shifter_operand=0
                         shifter_carry_out= get_bits(Rm, 31, 31)
-                        return shifter_operand,shifter_carry_out,f'r{m} >> #32'
+                        return shifter_operand,shifter_carry_out,f'r{m}, lsr #32',f'r{m} >>> #32'
                     else:
                         shifter_out=(Rm & 0xffff_ffff)>>shift_imm
                         shifter_carry_out= get_bits(Rm, 32 - shift_imm, 32 - shift_imm)
-                        return shifter_out,shifter_carry_out,f'r{m} >> {shift_imm}'
+                        return shifter_out,shifter_carry_out,f'r{m}, lsr #{shift_imm}',f'r{m} >>> {shift_imm}'
                 elif get_bits(shifter_operand, 6, 5)==0b10:
                     #A5.1.9 Data-processing operands -- Arithmetic shift right by immediate
                     m= get_bits(shifter_operand, 3, 0)
-                    Rm=self[m]
-                    Rm=Rm+(4 if m==15 else 0)
+                    Rm=self.r_prefetch(m)
                     shift_imm= get_bits(shifter_operand, 11, 7)
                     if shift_imm==0:
                         shifter_carry_out= get_bits(Rm, 31, 31)
@@ -476,11 +547,11 @@ class datapath:
                             shifter_operand=0
                         else:
                             shifer_operand=0xffff_ffff
-                        return shifter_operand,shifter_carry_out,f'r{m} >>> 32'
+                        return shifter_operand,shifter_carry_out,f'r{m}, asr #32',f'r{m} >> 32'
                     else:
                         shifter_out= arithmetic_shift_right(Rm & 0xffff_ffff, shift_imm)
                         shifter_carry_out= get_bits(Rm, 32 - shift_imm, 32 - shift_imm)
-                        return shifter_out,shifter_carry_out,f'r{m} >>> {shift_imm}'
+                        return shifter_out,shifter_carry_out,f'r{m}, asr #{shift_imm}',f'r{m} >> {shift_imm}'
             elif get_bits(shifter_operand, 7, 7)==0:
                 # Register shifts
                 if get_bits(shifter_operand, 6, 5)==0b00:
@@ -512,43 +583,6 @@ class datapath:
         return result
 
 
-def format_hex(i:int)->str:
-    return f'0x{(i&0xffff_ffff)>>16:04X}_{i&0xffff:04X}'
-
-
-@dataclass
-class SideEffect:
-    gpr:dict[int,int]=field(default_factory=dict)  # Datapath side effects
-    xpsr:dict[str,int]=field(default_factory=dict) # xPSR side effects
-    mem:dict[int,int]=field(default_factory=dict)  # Memory side effects
-    def apply(self,d:datapath,mem:Memory)->list[str]:
-        """
-        Apply the given side effects to a datapath and memory
-
-        :param d: datapath
-        :param mem: memory
-        :return: list of strings describing old and new values of each affected item
-        """
-        result=[]
-        for n,val in self.gpr.items():
-            result.append(f'r{n}: {format_hex(d[n])}->{format_hex(val)}')
-            d[n]=val
-        for x,val in self.xpsr.items():
-            if x[0].lower=='c':
-                result.append(f'cpsr: {format_hex(d.cpsr)} ({d.str_psr(d.cpsr)})->{format_hex(val)} ({d.str_psr(val)})')
-                d.cpsr=val
-            else:
-                result.append(f'spsr: {format_hex(d.spsr)} ({d.str_psr(d.spsr)})->{format_hex(val)} ({d.str_psr(val)})')
-                d.spsr=val
-        for addr,val in self.mem.items():
-            result.append(f'mem[{format_hex(addr)}]={format_hex(val)}')
-            mem[addr]=val
-        return result
-
-
-
-
-
 CP15_reg1_UBit=1
 
 # All instruction functions have the following form:
@@ -571,22 +605,37 @@ CP15_reg1_UBit=1
 # regularity, and matching the form of the ARM manual pseudocode.
 
 
-def LDR(fields:dict[str,tuple[int,int]],d:datapath,mem:Memory)->tuple[str,str,SideEffect]:
-    result=SideEffect()
-    cond_pass,cond_decode=d.ConditionPassed(fields['c'])
+def LDR(fields:dict[str,tuple[int,int]],d:datapath,mem:Memory,se:SideEffect)->tuple[str,str]:
+    """
+    A4.1.23 -- LDR
+
+    LDR (Load Register) loads a word from a memory address.
+
+    If the PC is specified as register <Rd>, the instruction loads a data word which it
+    treats as an address, then branches to that address. In ARMv5T and above, bit[0] of
+    the loaded value determines whether execution continues after this branch in ARM state
+    or in Thumb state, as though a BX (loaded_value) instruction had been executed. In
+    earlier versions of the architecture, bits[1:0] of the loaded value are ignored and
+    execution continues in ARM state, as though a MOV PC,(loaded_value) instruction had
+    been executed.
+    """
+    cond_pass,cond_disasm,cond_desc=d.cpsr.ConditionPassed(fields['c'])
     if cond_pass:
-        addr,addr_decode=d.decode_addr(i=fields['i'],p=fields['p'],u=fields['u'],b=0,w=fields['w'],l=1,Rn=fields['n'],Rd=fields['d'],a=fields['a'])
+        addr,addr_disasm,addr_desc=d.addr_mode_2(i=fields['i'], p=fields['p'], u=fields['u'], b=0, w=fields['w'], l=1,
+                                                 Rn=fields['n'], Rd=fields['d'], a=fields['a'], se=se)
         data=mem[addr,4]
         if fields['d']==15:
-            result.gpr[15]=data & 0xFFFFFFFC
+            se.gpr[15]=data & 0xFFFFFFFC
         else:
-            result.gpr[fields['d']]=data
-    return cond_decode+f"r{fields['d']}={addr_decode} (mem[0x{addr:08x}]=0x{data:08x})"
+            se.gpr[fields['d']]=data
+    disasm="ldr"+cond_disasm+f" r{fields['d']}, {addr_disasm}"
+    desc=cond_desc+f"r{fields['d']}={addr_desc} (mem[0x{addr:08x}]=0x{data:08x})"
+    return disasm,desc
 
 
-def MSR_imm(fields:dict[str,tuple[int,int]],d:datapath,mem:Memory):
+def MSR(fields:dict[str,tuple[int,int]],d:datapath,mem:Memory,se:SideEffect):
     """
-    A4.1.39 -- MSR for immediate operand
+    A4.1.39 -- MSR
     :param fields:
     :param d:
     :param mem:
@@ -596,7 +645,11 @@ def MSR_imm(fields:dict[str,tuple[int,int]],d:datapath,mem:Memory):
     UserMask=0xF000_0000
     PrivMask=0x0000_00DF # Note -- documentation is wrong, doesn't include I and F bits or highest M bit
     StateMask=0x0000_0020
-    operand= rotate_right(fields['j'], fields['k'] * 2)
+    if fields['i']==1:
+        operand= rotate_right(fields['j'], fields['k'] * 2)
+    else:
+        Rm=get_bits(fields['k'],3,0)
+        operand=d[Rm]
     field_mask=[fields['f'] & (1<<x) for x in range(4)]
     byte_mask=((0x0000_00FF if field_mask[0] else 0x0000_0000) |
                (0x0000_FF00 if field_mask[1] else 0x0000_0000) |
@@ -606,7 +659,7 @@ def MSR_imm(fields:dict[str,tuple[int,int]],d:datapath,mem:Memory):
                       ('x' if field_mask[1] else '')+
                       ('s' if field_mask[2] else '')+
                       ('f' if field_mask[3] else ''))
-    cond_pass,cond_decode=d.ConditionPassed(fields['c'])
+    cond_pass,cond_disasm,cond_desc=d.cpsr.ConditionPassed(fields['c'])
     if cond_pass:
         if operand & UnallocMask:
             raise UNPREDICTABLE("Trying to set bits that aren't allocated")
@@ -618,18 +671,22 @@ def MSR_imm(fields:dict[str,tuple[int,int]],d:datapath,mem:Memory):
                     mask=byte_mask & (UserMask|PrivMask)
             else:
                 mask=byte_mask & UserMask
-            d.cpsr= (d.cpsr.val & bit_not(mask)) | (operand & mask)
+            cpsr=xPSR()
+            cpsr.val=(d.cpsr.val & bit_not(mask)) | (operand & mask)
+            se.xpsr['c']=cpsr
         else:
             if d.has_spsr():
                 mask=byte_mask & (UserMask | PrivMask | StateMask)
-                d.spsr= (d.spsr & bit_not(mask)) | (operand & mask)
+                spsr=xPSR()
+                spsr.val=(d.spsr.val & bit_not(mask)) | (operand & mask)
+                se.xpsr['s']=spsr
             else:
                 raise UNPREDICTABLE("No SPSR in current mode")
 
-    return cond_decode+f"{'c' if fields['r']==0 else 's'}psr_{byte_mask_decode}=({operand:08x} & 0x{byte_mask:08x})"
+    return f"msr{cond_disasm} {'c' if fields['r']==0 else 's'}psr_{byte_mask_decode}, "+(f"#{operand}" if fields['i'] else f"r{Rm}"),None
 
 
-def MOV(fields:dict[str,tuple[int,int]],d:datapath,mem:Memory):
+def MOV(fields:dict[str,tuple[int,int]],d:datapath,mem:Memory,se:SideEffect):
     """
     A4.1.35 -- MOV
     :param fields:
@@ -637,45 +694,52 @@ def MOV(fields:dict[str,tuple[int,int]],d:datapath,mem:Memory):
     :param mem:
     :return:
     """
-    out, c, decode_disasm = d.decode_shifter_operand(fields['i'], fields['j'])
-    cond_pass,cond_decode=d.ConditionPassed(fields['c'])
+    out, c, shifter_operand_disasm,shifter_operand_desc = d.shifter_operand(fields['i'], fields['j'])
+    cond_pass,cond_disasm,cond_desc=d.cpsr.ConditionPassed(fields['c'])
     if cond_pass:
-        d[fields['d']]=out
+        se.gpr[fields['d']]=out
         if fields['s']==1 and fields['d']==15:
-            d.CPSR=d.SPSR
+            se.xpsr['c']=xPSR()
+            se.xpsr['c'].val=d.SPSR.val
         elif fields['s']==1:
-            d.N= get_bits(d[fields['d']], 31, 31)
-            d.Z=1 if d[fields['d']]==0 else 0
-            d.C=c
-            # d.V is unaffected
-    return f"{cond_decode}r{fields['d']}={decode_disasm}"
+            se.xpsr['c']=xPSR()
+            se.xpsr['c'].N= get_bits(d[fields['d']], 31, 31)
+            se.xpsr['c'].Z=1 if d[fields['d']]==0 else 0
+            se.xpsr['c'].C=c
+          # se.xpsr['c'].V=unaffected
+    disasm=f"mov{cond_disasm}{'s' if fields['s'] else ''} r{fields['d']}, {shifter_operand_disasm}"
+    return disasm,f"{cond_desc}r{fields['d']}={shifter_operand_desc}"
 
 
-def SUB(fields:dict[str,tuple[int,int]],d:datapath,mem:Memory):
+def SUB(fields:dict[str,tuple[int,int]],d:datapath,mem:Memory,se:SideEffect):
     """
-    A4.1.15 -- SUB
+    A4.1.106 -- SUB
     :param fields:
     :param d:
     :param mem:
     :return:
     """
-    cond_pass, cond_decode = d.ConditionPassed(fields['c'])
+    cond_pass, cond_disasm, cond_desc = d.cpsr.ConditionPassed(fields['c'])
     if cond_pass:
-        shifter_operand,_,decode_disasm=d.decode_shifter_operand(fields['i'],fields['j'])
+        shifter_operand,shifter_carry_out,shifter_operand_disasm,shifter_operand_desc=d.shifter_operand(fields['i'], fields['j'])
         subA=d[fields['n']]
         subB=shifter_operand
-        d[fields['d']]=subA-subB
+        se.gpr[fields['d']]=subA-subB
         if fields['s']==1 and fields['d']==15:
-            d.CPSR=d.SPSR
+            se.xpsr['c']=xPSR()
+            se.xpsr['c'].val=d.SPSR.val
         elif fields['s']==1:
-            d.N= get_bits(d[fields['d']], 31, 31)
-            d.Z=1 if d[fields['d']]==0 else 0
-            d.C=~borrow_from(subA,subB)
-            d.V=overflow_from_sub(subA,subB)
-    return cond_decode+f"r{fields['d']}=r{fields['n']}-{decode_disasm}"
+            se.xpsr['c']=xPSR()
+            se.xpsr['c'].N= get_bits(d[fields['d']], 31, 31)
+            se.xpsr['c'].Z=1 if d[fields['d']]==0 else 0
+            se.xpsr['c'].C=~borrow_from(subA,subB)
+            se.xpsr['c'].V=overflow_from_sub(subA,subB)
+    disasm='sub'+cond_disasm+('s' if fields['s'] else '')+f' r{fields["d"]}, r{fields["n"]}, {shifter_operand_disasm}'
+    desc=cond_desc+f"r{fields['d']}=r{fields['n']}-{shifter_operand_disasm}"
+    return disasm,desc
 
 
-def B(fields:dict[str,tuple[int,int]],d:datapath,mem:Memory):
+def B(fields:dict[str,tuple[int,int]],d:datapath,mem:Memory,se:SideEffect):
     """
     A4.1.5 -- B, BL
     :param fields:
@@ -683,20 +747,19 @@ def B(fields:dict[str,tuple[int,int]],d:datapath,mem:Memory):
     :param mem:
     :return:
     """
-    cond_pass, cond_decode = d.ConditionPassed(fields['c'])
+    cond_pass, cond_disasm, cond_desc = d.cpsr.ConditionPassed(fields['c'])
     signed_immed_24 = fields['k']
     delta = sign_extend(signed_immed_24, 24, 30) << 2
-    disasm = ''
-    new_pc = d[15] + 4 + delta  # Pipelined PC (base from which to use delta) is needed
+    new_pc = (d.r_prefetch(15) + delta) & 0xFFFF_FFFF  # Pipelined PC (base from which to use delta) is needed
     if cond_pass:
         if fields['l']==1:
-            d[14]=d[15] # PC is already pointing at next instruction
-            disasm='r14={d[14]:08}, '
-        d[15]=new_pc
-    return cond_decode+disasm+f"r15+=0x{delta:08x}={new_pc:08x}"
+            se.gpr[14]=d[15]+4 #non-prefetch value
+        se.gpr[15]=new_pc
+    disasm='b'+('l' if fields['l'] else '')+cond_disasm+' '+format_hex(new_pc)
+    return disasm,None
 
 
-def CMP(fields:dict[str,tuple[int,int]],d:datapath,mem:Memory):
+def CMP(fields:dict[str,tuple[int,int]],d:datapath,mem:Memory,se:SideEffect):
     """
     A4.1.15 -- CMP
     :param fields:
@@ -704,17 +767,20 @@ def CMP(fields:dict[str,tuple[int,int]],d:datapath,mem:Memory):
     :param mem:
     :return:
     """
-    cond_pass, cond_decode = d.ConditionPassed(fields['c'])
+    cond_pass, cond_disasm, cond_desc = d.cpsr.ConditionPassed(fields['c'])
     if cond_pass:
-        shifter_operand,_,decode_disasm=d.decode_shifter_operand(fields['i'],fields['j'])
+        shifter_operand,shifter_carry_out,shifter_operand_disasm,shifter_operand_desc=d.shifter_operand(fields['i'], fields['j'])
         subA=d[fields['n']]
         subB=shifter_operand
         alu_out=subA-subB
-        d.N= get_bits(alu_out, 31, 31)
-        d.Z=1 if alu_out==0 else 0
-        d.C=~borrow_from(subA,subB)
-        d.V=overflow_from_sub(subA,subB)
-    return cond_decode+f"N,Z,C,V=r{fields['n']}(0x{subA:08x})<=>{decode_disasm}(0x{subB:08x})"
+        se.xpsr['c'] = xPSR()
+        se.xpsr['c'].N= get_bits(alu_out, 31, 31)
+        se.xpsr['c'].Z=1 if alu_out==0 else 0
+        se.xpsr['c'].C=~borrow_from(subA,subB)
+        se.xpsr['c'].V=overflow_from_sub(subA,subB)
+    disasm=f"cmp{cond_disasm} r{fields['n']}, {shifter_operand_disasm}"
+    desc=cond_desc+f"N,Z,C,V=r{fields['n']}(0x{subA:08x})<=>{shifter_operand_desc}(0x{subB:08x})"
+    return disasm, desc
 
 
 def STR(fields:dict[str,tuple[int,int]],d:datapath,mem:Memory):
@@ -727,7 +793,7 @@ def STR(fields:dict[str,tuple[int,int]],d:datapath,mem:Memory):
     """
     cond_pass,cond_decode=d.ConditionPassed(fields['c'])
     if cond_pass:
-        addr,addr_decode=d.decode_addr(i=fields['i'],p=fields['p'],u=fields['u'],b=0,w=fields['w'],l=1,Rn=fields['n'],Rd=fields['d'],a=fields['a'])
+        addr,addr_decode=d.addr_mode_2(i=fields['i'], p=fields['p'], u=fields['u'], b=0, w=fields['w'], l=1, Rn=fields['n'], Rd=fields['d'], a=fields['a'])
         data=d[fields['d']]+(4 if fields['d']==15 else 0)
         mem[addr, 4]=data
     return cond_decode+f"{addr_decode}=r{fields['d']} (=0x{data:08x})"
@@ -742,7 +808,7 @@ def ADD(fields:dict[str,tuple[int,int]],d:datapath,mem:Memory):
     :return:
     """
     cond_pass, cond_decode = d.ConditionPassed(fields['c'])
-    shifter_operand, _, decode_disasm = d.decode_shifter_operand(fields['i'], fields['j'])
+    shifter_operand, _, decode_disasm = d.shifter_operand(fields['i'], fields['j'])
     if cond_pass:
         subA=d[fields['n']]
         subB=shifter_operand
@@ -757,7 +823,7 @@ def ADD(fields:dict[str,tuple[int,int]],d:datapath,mem:Memory):
     return cond_decode+f"r{fields['d']}=r{fields['n']}+{decode_disasm}"
 
 
-def BIC(fields:dict[str,tuple[int,int]],d:datapath,mem:Memory):
+def BIC(fields:dict[str,tuple[int,int]],d:datapath,mem:Memory,se:SideEffect):
     """
     A4.1.6 -- BIC
     :param fields:
@@ -765,20 +831,24 @@ def BIC(fields:dict[str,tuple[int,int]],d:datapath,mem:Memory):
     :param mem:
     :return:
     """
-    cond_pass, cond_decode = d.ConditionPassed(fields['c'])
+    cond_pass, cond_disasm, cond_desc = d.cpsr.ConditionPassed(fields['c'])
     if cond_pass:
-        shifter_operand,shifter_carry_out,decode_disasm=d.decode_shifter_operand(fields['i'],fields['j'])
-        subA=d[fields['n']]
+        shifter_operand,shifter_carry_out,shifter_operand_disasm,shifter_operand_desc=d.shifter_operand(fields['i'], fields['j'])
+        subA=d.r_prefetch(fields['n'])
         subB=shifter_operand
-        d[fields['d']]=d[fields['n']] & ~(shifter_operand & 0xffff_ffff)
+        se.gpr[fields['d']]=d[fields['n']] & ~(shifter_operand & 0xffff_ffff)
         if fields['s']==1 and fields['d']==15:
-            d.CPSR=d.SPSR
+            se.xpsr['c']=xPSR()
+            se.xpsr['c'].val=d.SPSR.val
         elif fields['s']==1:
-            d.N= get_bits(d[fields['d']], 31, 31)
-            d.Z=1 if d[fields['d']]==0 else 0
-            d.C=shifter_carry_out
-            #d.V=unaffected
-    return cond_decode+f"r{fields['d']}=r{fields['n']}&~({decode_disasm})"
+            se.xpsr['c']=xPSR()
+            se.xpsr['c'].N= get_bits(d[fields['d']], 31, 31)
+            se.xpsr['c'].Z=1 if d[fields['d']]==0 else 0
+            se.xpsr['c'].C=shifter_carry_out
+           #se.xpsr['c'].V=unaffected
+    disasm='bic'+cond_disasm+('s' if fields['s'] else '')+f" r{fields['d']}, r{fields['n']}, {shifter_operand_disasm}"
+    desc=cond_desc+f"r{fields['d']}=r{fields['n']}&~({shifter_operand_desc})"
+    return disasm,desc
 
 
 def BX(fields:dict[str,tuple[int,int]],d:datapath,mem:Memory):
@@ -805,7 +875,7 @@ def TST(fields:dict[str,tuple[int,int]],d:datapath,mem:Memory):
     """
     cond_pass, cond_decode = d.ConditionPassed(fields['c'])
     if cond_pass:
-        shifter_operand,shifter_carry_out,decode_disasm=d.decode_shifter_operand(fields['i'],fields['j'])
+        shifter_operand,shifter_carry_out,decode_disasm=d.shifter_operand(fields['i'], fields['j'])
         alu_out=d[fields['n']] & shifter_operand
         d.N= get_bits(alu_out, 31, 31)
         d.Z=1 if alu_out==0 else 0
@@ -824,7 +894,7 @@ def STM_1(fields:dict[str,tuple[int,int]],d:datapath,mem:Memory):
     """
     cond_pass,cond_decode=d.ConditionPassed(fields['c'])
     if cond_pass:
-        start_address,end_address,parsed_reglist,disasm_addr,disasm_writeback=d.decode_addr_4(p=fields['p'],u=fields['u'],s=0,w=fields['w'],l=0,Rn=fields['n'],reglist=fields['r'])
+        start_address,end_address,parsed_reglist,disasm_addr,disasm_writeback=d.addr_mode_4(p=fields['p'], u=fields['u'], s=0, w=fields['w'], l=0, Rn=fields['n'], reglist=fields['r'])
         address=start_address
         for reg in parsed_reglist:
             mem[address,4]=d[reg]
@@ -841,7 +911,7 @@ def AND(fields:dict[str,tuple[int,int]],d:datapath,mem:Memory):
     :return:
     """
     cond_pass, cond_decode = d.ConditionPassed(fields['c'])
-    shifter_operand, shifter_carry_out, decode_disasm = d.decode_shifter_operand(fields['i'], fields['j'])
+    shifter_operand, shifter_carry_out, decode_disasm = d.shifter_operand(fields['i'], fields['j'])
     if cond_pass:
         subA=d[fields['n']]
         subB=shifter_operand
@@ -887,8 +957,7 @@ class ARM(datapath):
     # rrrr -- register list for load or store multiple
     decode_encoded = {
         'cccc01ipu0w1nnnnddddaaaaaaaaaaaa': LDR,     #A4.1.23
-        'cccc00110r10ffffooookkkkjjjjjjjj': MSR_imm, #A4.1.39
-       #'cccc00010r10ffffsssszzzz0000mmmm': MSR_reg, #A4.1.39
+        'cccc00i10r10ffffooookkkkjjjjjjjj': MSR,     #A4.1.39
         'cccc00i1101szzzzddddjjjjjjjjjjjj': MOV,     #A4.1.35
         'cccc00i0010snnnnddddjjjjjjjjjjjj': SUB,     #A4.1.106
         'cccc00i10101nnnnzzzzjjjjjjjjjjjj': CMP,
@@ -913,20 +982,16 @@ class ARM(datapath):
                 field_vals = decode_bitpat(ins,fields)
                 return (opcode,field_vals)
         raise ValueError(f"Couldn't decode instruction {ins:08x}")
-    def disasm(self,mem:Memory):
-        pc=self[15]
-        ins=mem[pc,4]
-        print(f"{pc:08x} - {ins:08x} ",end='')
-        opcode,field_vals=self.decode(ins)
-        self[15]+=4
-        return opcode(field_vals,self,mem)
     def exec(self,mem:Memory):
         pc=self[15]
         ins=mem[pc,4]
-        print(f"{pc:08x} - {ins:08x} ",end='')
+        print(f"{format_hex(pc)} - {format_hex(ins)} ",end='')
         opcode,field_vals=self.decode(ins)
-        self[15]+=4
-        return opcode(field_vals,self,mem)
+        se=SideEffect()
+        se.gpr[15]=pc+4
+        disasm,desc=opcode(field_vals,self,mem,se=se)
+        se.writeback(d=self, mem=mem)
+        return disasm,desc,se
 
 
 if __name__=="__main__":
@@ -937,10 +1002,10 @@ if __name__=="__main__":
     proc=ARM()
     print(proc)
     while True:
-        disasm=proc.exec(mem)
+        disasm,desc,se=proc.exec(mem)
         if disasm is None:
             raise ValueError("Didn't disassemble")
-        print(disasm)
+        print(f'{disasm:20s}{desc},{se}')
 #        print(proc)
 
 
